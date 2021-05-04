@@ -140,10 +140,11 @@ impl HelperDef for RenderToc {
 
             if !self.no_section_label {
                 // Section does not necessarily exist
-                if let Some(section) = item.get("section") {
-                    out.write("<strong aria-hidden=\"true\">")?;
-                    out.write(&section)?;
-                    out.write("</strong> ")?;
+                if let Some(_section) = item.get("section") {
+                    // Uncomment this for numbered toc.
+                    // out.write("<strong aria-hidden=\"true\">")?;
+                    // out.write(&section)?;
+                    // out.write("</strong> ")?;
                 }
             }
 
