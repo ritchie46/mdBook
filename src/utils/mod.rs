@@ -177,7 +177,7 @@ pub fn new_cmark_parser(text: &str) -> Parser<'_> {
     Parser::new_ext(text, opts)
 }
 
-pub fn render_markdown_with_path(text: &str, curly_quotes: bool, path: Option<&Path>) -> String {
+pub fn _original_render_markdown_with_path(text: &str, curly_quotes: bool, path: Option<&Path>) -> String {
     let mut s = String::with_capacity(text.len() * 3 / 2);
     let p = new_cmark_parser(text);
     let mut converter = EventQuoteConverter::new(curly_quotes);
@@ -188,6 +188,91 @@ pub fn render_markdown_with_path(text: &str, curly_quotes: bool, path: Option<&P
 
     html::push_html(&mut s, events);
     s
+}
+
+const START_RAW: &'static str = "<raw>";
+const END_RAW: &'static str = "</raw>";
+const REPLACE_TOKEN: &'static str = "||RAW_INSERT_TOKEN||";
+
+/// Replace <raw> some html </raw> with REPLACE_TOKEN before it goes into the renderer
+/// then afterwards you can replace the REPLACE_TOKEN with the original html
+///
+/// # Parameters
+///
+/// * `offset` - offset of the first byte of `<raw>`
+/// * `text` - original text
+fn replace_html_snippets(text: &str, mut offset: usize) -> (String, Vec<&str>) {
+    let mut out = String::with_capacity(text.len());
+    out.push_str(&text[..offset]);
+    let mut raw_html = vec![];
+
+    // iterate over all <raw> </raw> snippets
+    // if now ending </raw> is found, we keep the text untouched and send it to the renderer
+    loop {
+        // this is start of html
+        let offset_html = offset + START_RAW.len();
+
+        // find and ending tag
+        match text[offset..].find(END_RAW) {
+            // an ending tag is found
+
+            // we copy the contexts within the <raw> tags (not the tags themselves)
+            // to the `raw_html` vec. That will later be used to replace the REPLACE_TOKENS
+            //
+            //
+            Some(n) => {
+                offset += n + END_RAW.len();
+
+                // store raw html snippet
+                raw_html.push(&text[offset_html..offset]);
+                out.push_str(REPLACE_TOKEN);
+
+                // check if there is a new start token
+                // if there is we do another loop else we quit.
+                match text[offset..].find(START_RAW) {
+                    Some(n) => {
+                        offset += n;
+                    },
+                    None => {
+                        break
+                    }
+                }
+
+            }
+            // if it does not exist, copy everything and return
+            None => {
+                // push remaining text and return
+                out.push_str(&text[offset_html..]);
+                break
+            }
+        }
+    }
+    (out, raw_html)
+}
+
+pub fn render_markdown_with_path(text: &str, curly_quotes: bool, path: Option<&Path>) -> String {
+    match text.find(START_RAW) {
+        None => _original_render_markdown_with_path(text, curly_quotes, path),
+        Some(start) => {
+            let (out, raw_html) = replace_html_snippets(text, start);
+            let out = _original_render_markdown_with_path(&out, curly_quotes, path);
+
+            if raw_html.len() > 0 {
+                let mut new_out = String::with_capacity(text.len());
+                let mut low_offset = 0;
+
+                for r in raw_html {
+                    let offset = out[low_offset..].find(REPLACE_TOKEN).unwrap();
+                    new_out.push_str(&out[low_offset..offset]);
+                    new_out.push_str(r);
+                    low_offset += offset + REPLACE_TOKEN.len();
+                }
+                return new_out
+            }
+            out
+    }
+}
+
 }
 
 struct EventQuoteConverter {
